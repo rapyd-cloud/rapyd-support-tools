@@ -1,30 +1,35 @@
 #!/bin/bash
 
 # Define the time frame
-start_date="20/Aug/2024:00:00:00"
-end_date="21/Aug/2024:23:59:59"
+start_date="29/Aug/2024:00:00:00"
+end_date="29/Aug/2024:23:59:59"
 
 # List of LiteSpeed access log files
 log_files=(
     "/var/log/litespeed/access.log"
-    "/var/log/litespeed/access.log.2024_08_21"
-    "/var/log/litespeed/access.log.2024_08_21.01"
-    "/var/log/litespeed/access.log.2024_08_21.02"
-    "/var/log/litespeed/access.log.2024_08_21.03"
-    "/var/log/litespeed/access.log.2024_08_21.04"
-    "/var/log/litespeed/access.log.2024_08_21.05"
-    "/var/log/litespeed/access.log.2024_08_21.06"
-    "/var/log/litespeed/access.log.2024_08_21.07"
+    "/var/log/litespeed/access.log.2024_08_29"
+
     # Add more log files as needed
 )
 
+# List of IP addresses to ignore
+ignore_ips=(
+    "52.213.162.56"
+    "54.214.224.33"
+    "52.21.223.221"
+    # Add more IP addresses as needed
+)
 # Temporary file to store intermediate results
 temp_file=$(mktemp)
+
+# Convert ignore IPs to a pattern string for easy matching
+ignore_pattern=$(printf "|^%s\$" "${ignore_ips[@]}")
+ignore_pattern="${ignore_pattern:1}"  # Remove leading |
 
 # Process each log file
 for log_file in "${log_files[@]}"; do
     echo "Processing $log_file..."
-    awk -v start="$start_date" -v end="$end_date" '
+    awk -v start="$start_date" -v end="$end_date" -v ignore="$ignore_pattern" '
     BEGIN {
         # Convert start and end times to epoch
         split(start, s, "[:/ ]")
@@ -43,7 +48,7 @@ for log_file in "${log_files[@]}"; do
         if (log_epoch >= start_epoch && log_epoch <= end_epoch) {
             match($0, /^([0-9.]+) - -/, ip_arr)
             ip = ip_arr[1]
-            if (ip != "") {
+            if (ip != "" && ip !~ ignore) {
                 print ip
             }
         }
@@ -51,7 +56,7 @@ for log_file in "${log_files[@]}"; do
     ' "$log_file" >> "$temp_file"
 done
 
-# Aggregate results
+# Aggregate and fetch geolocation for each IP
 awk '
 {
     ips[$1]++
@@ -61,7 +66,11 @@ END {
         print ips[ip], ip
     }
 }
-' "$temp_file" | sort -nr | head
+' "$temp_file" | sort -nr | while read count ip; do
+    # Fetch geolocation data
+    country=$(curl -s "https://ipinfo.io/$ip" | awk -F'"' '/"country"/ {print $4}')
+    echo "$count $ip $country"
+done
 
 # Clean up
 rm "$temp_file"
