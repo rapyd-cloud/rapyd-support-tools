@@ -19,6 +19,7 @@ ignore_ips=(
     "52.21.223.221"
     # Add more IP addresses as needed
 )
+
 # Temporary file to store intermediate results
 temp_file=$(mktemp)
 
@@ -56,7 +57,7 @@ for log_file in "${log_files[@]}"; do
     ' "$log_file" >> "$temp_file"
 done
 
-# Aggregate, fetch geolocation for each IP, and display the top 20
+# Aggregate and fetch geolocation for each IP
 awk '
 {
     ips[$1]++
@@ -67,13 +68,12 @@ END {
     }
 }
 ' "$temp_file" | sort -nr | head -n 20 | while read count ip; do
-    # Fetch geolocation data
+    echo "Hits / IP / Country"
+    # Fetch geolocation data and add a delay
     country=$(curl -s "https://ipinfo.io/$ip" | awk -F'"' '/"country"/ {print $4}')
     echo "$count $ip $country"
+    sleep 1  # Wait for 1 second to ensure the curl response is properly processed
 done
-
-# Clean up
-rm "$temp_file"
 
 # Clean up
 rm "$temp_file"
