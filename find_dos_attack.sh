@@ -56,7 +56,7 @@ for log_file in "${log_files[@]}"; do
     ' "$log_file" >> "$temp_file"
 done
 
-# Aggregate and fetch geolocation for each IP
+# Aggregate, fetch geolocation for each IP, and display the top 20
 awk '
 {
     ips[$1]++
@@ -66,11 +66,14 @@ END {
         print ips[ip], ip
     }
 }
-' "$temp_file" | sort -nr | while read count ip; do
+' "$temp_file" | sort -nr | head -n 20 | while read count ip; do
     # Fetch geolocation data
     country=$(curl -s "https://ipinfo.io/$ip" | awk -F'"' '/"country"/ {print $4}')
     echo "$count $ip $country"
 done
+
+# Clean up
+rm "$temp_file"
 
 # Clean up
 rm "$temp_file"
