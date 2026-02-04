@@ -1,10 +1,10 @@
 #!/bin/bash
 #===============================================================
-# EnvPrep Pro - Optimized for KeyDB & LiteSpeed 
+# EnvPrep Pro - Optimized for KeyDB & LiteSpeed (Kebudel Edition)
 #===============================================================
 # Author: Alexander Gil
 # Description: WordPress Migration Helper for RapydCloud/Jelastic
-# Version: 1.1
+# Version: 1.2
 #===============================================================
 
 set -euo pipefail
@@ -31,14 +31,27 @@ run_pre() {
         log_info "Processing $user..."
         cd "$wp_path"
 
-        # 1. Export LiteSpeed Configuration
+        # 1. Self-Healing: Fix Filesystem Method and Ownership
+        log_info "Ensuring direct filesystem access and correct ownership..."
+        # Check if FS_METHOD is already defined; if not, add it after the opening PHP tag
+        if ! grep -q "FS_METHOD" wp-config.php; then
+            sed -i "/<?php/a define('FS_METHOD', 'direct');" wp-config.php
+            log_ok "Added FS_METHOD to wp-config.php for $user"
+        fi
+        
+        # Correct ownership to ensure the web user can write the export file
+        chown -R "$user:$user" .
+        log_ok "Ownership corrected to $user"
+
+        # 2. Export LiteSpeed Configuration
         log_info "Exporting LiteSpeed Cache configuration..."
         wp litespeed-option export --filename=lsconf-premig.data --allow-root || log_warn "Export failed for $user"
 
-        # 2. Flush Caches (WP and Memory)
+        # 3. Flush Caches (WP and Memory)
         log_info "Flushing caches..."
         wp cache flush --allow-root || true
         
+        # Support for KeyDB / Redis
         if command -v keydb-cli &> /dev/null; then
             keydb-cli flushall && log_ok "KeyDB flushed successfully"
         elif command -v redis-cli &> /dev/null; then
@@ -47,7 +60,7 @@ run_pre() {
         
         wp litespeed-purge all --allow-root || true
 
-        # 3. Clean .htaccess to avoid path conflicts
+        # 4. Clean .htaccess to avoid path conflicts
         log_info "Cleaning .htaccess rules..."
         [ -f .htaccess ] && sed -i '/BEGIN LSCACHE/,/END LSCACHE/d' .htaccess || true
         
@@ -68,14 +81,11 @@ run_post() {
         # 1. Import configuration if the file exists
         if [ -f "lsconf-premig.data" ]; then
             log_info "Importing LiteSpeed Cache configuration..."
-            # Import without skip-plugins to avoid database errors
             wp litespeed-option import lsconf-premig.data --allow-root && rm -f lsconf-premig.data || log_warn "Import failed for $user"
         fi
 
         # 2. Force rule regeneration
         wp litespeed-purge all --allow-root || true
-        
-        # Disable cache for logged-in users (to avoid session bleeding)
         wp litespeed-option set cache-priv false --allow-root 2>/dev/null || true
         
         log_ok "$user restored successfully."
